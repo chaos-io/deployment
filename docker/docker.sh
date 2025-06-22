@@ -90,13 +90,13 @@ download_with_urls() {
 
   for url in "$@"; do
     if [[ -e /usr/bin/wget ]]; then
-      wget -c --no-check-certificate -T 10 "$url" || {
-        logger error "failed to wget download url:$url"
+      wget -c --no-check-certificate -T 10 -t 3 "$url" || {
+        logger error "failed to wget download url, $url"
         return 1
       }
     else
-      curl -k -C- -O --retry 3 "$url" || {
-        logger error "failed to curl download url:$url"
+      curl -k -C- -O --connect-timeout 10 --max-time 60 --retry 3 "$url" || {
+        logger error "failed to curl download url, $url"
         return 1
       }
     fi
