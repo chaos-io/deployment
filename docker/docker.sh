@@ -54,26 +54,20 @@ get_distribution() {
   echo "$lsb_dist" | tr '[:upper:]' '[:lower:]'
 }
 
-get_lsb() {
-  case "$1" in
-  ubuntu | centos | debian) LSB="$1" ;;
-  "") LSB=$(get_distribution) ;;
-  *) logger error "illegal option: $1" && usage >&2 && return 1 ;;
-  esac
-}
-
-get_arch() {
-  case "$1" in
-  x86_64 | aarch64) ARCH="$1" ;;
-  "") ARCH=$(uname -m) ;;
-  *) logger error "illegal option: $1" && usage >&2 && return 1 ;;
-  esac
-}
-
-LSB="" && get_lsb "$2"
+case "${2:-}" in
+ubuntu | centos | debian) LSB="$1" ;;
+"") LSB=$(get_distribution) ;;
+*) logger error "illegal option: $1" && usage >&2 && return 1 ;;
+esac
 [ -z "$LSB" ] && logger error "illegal os" && (usage >&2 && exit 2)
-ARCH="" && get_arch "$3"
+
+case "${3:-}" in
+x86_64 | aarch64) ARCH="$1" ;;
+"") ARCH=$(uname -m) ;;
+*) logger error "illegal option: $1" && usage >&2 && return 1 ;;
+esac
 [ -z "$ARCH" ] && logger error "illegal arch" && (usage >&2 && exit 2)
+
 PLATFORM="$LSB-$ARCH"
 logger debug "platform: $PLATFORM"
 
