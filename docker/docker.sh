@@ -207,7 +207,7 @@ download() {
 install() {
   logger info "Start the offline installation."
 
-  systemctl is-system-running docker && {
+  sudo systemctl is-system-running docker && {
     logger warn "docker is already running, the installation was aborted"
     return 0
   }
@@ -228,7 +228,7 @@ Description=Docker Application Container Engine
 Documentation=http://docs.docker.io
 [Service]
 Environment="PATH=/usr/local/bin:/bin:/sbin:/usr/bin:/usr/sbin"
-ExecStart=/usr/bin/dockerd
+ExecStart=/usr/local/bin/dockerd
 ExecReload=/bin/kill -s HUP \$MAINPID
 Restart=on-failure
 RestartSec=5
@@ -271,8 +271,8 @@ EOF
 EOF
 
   logger debug "enable and start docker"
-  systemctl enable docker
-  systemctl daemon-reload && systemctl restart docker
+  sudo systemctl enable docker
+  sudo systemctl daemon-reload && sudo systemctl restart docker
 
   if check_cmd_status "systemctl is-system-running docker"; then
     check_cmd_status "docker info" 60 3 && logger info "install docker offline successfully"
@@ -322,20 +322,20 @@ uninstall() {
   logger info "Start the uninstallation."
   read_uninstall_answer || exit 1
 
-  if [[ "$(systemctl is-system-running docker)" == active ]]; then
+  if [[ "$(sudo systemctl is-system-running docker)" == active ]]; then
     logger info "docker is running, try to stop it"
-    systemctl stop docker
+    sudo systemctl stop docker
   fi
 
   (
     set -x
-    systemctl disable docker
+    sudo systemctl disable docker
     sudo rm -rf /etc/systemd/system/docker.service
     sudo rm -rf /etc/docker/daemon.json
     sudo rm -rf /usr/local/bin/containerd /usr/local/bin/containerd-shim-runc-v2 /usr/local/bin/ctr /usr/local/bin/docker /usr/local/bin/docker-compose /usr/local/bin/docker-init /usr/local/bin/docker-proxy /usr/local/bin/dockerd /usr/local/bin/runc
     sudo rm -rf /var/lib/docker
     sudo rm -rf /var/lib/containerd
-    systemctl daemon-reload
+    sudo systemctl daemon-reload
   )
 
   logger info "Uninstallation complete."
