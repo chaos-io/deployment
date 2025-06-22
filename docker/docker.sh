@@ -148,7 +148,7 @@ download() {
 
   backup_package="$BACKUP_DIR/$PLATFORM.tgz"
   if [[ -e "$backup_package" ]]; then
-    tar -zxvf "$backup_package" -C "$DOWNLOAD_DIR"
+    tar -xzvf "$backup_package" -C "$DOWNLOAD_DIR"
     exit 0
   fi
 
@@ -164,15 +164,16 @@ download() {
   fi
 
   tar -xzvf "$docker_package" --strip-components=1 -C "$DOWNLOAD_DIR"
-#  rm -f "$docker_package"
 
   # https://github.com/docker/compose/releases/download/v2.37.2/docker-compose-linux-x86_64
   DOCKER_COMPOSE_URL="https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-linux-${ARCH}"
   DOCKER_COMPOSE_SHA256_URL="$DOCKER_COMPOSE_URL.sha256"
 
   docker_compose_package="$TEMP_DIR/docker-compose-linux-${ARCH}"
-  if [[ -f "$docker_compose_package" ]]; then
-    logger warn "docker-compose already existed"
+  docker_compose_backup_package="$BACKUP_DIR/docker-compose-linux-${ARCH}-${DOCKER_COMPOSE_VERSION}.tgz"
+  if [[ -f "$docker_compose_backup_package" ]]; then
+    logger info "use backup docker-compose, $docker_compose_backup_package"
+    tar -xzvf "$docker_compose_backup_package" -C "$TEMP_DIR"
   else
     logger info "downloading docker-compose, $DOCKER_COMPOSE_URL"
     docker_compose_package_sha256="$TEMP_DIR/docker-compose-linux-${ARCH}.sha256"
@@ -182,34 +183,23 @@ download() {
       tar -czvf "docker-compose-linux-${ARCH}-${DOCKER_COMPOSE_VERSION}.tgz" "docker-compose-linux-${ARCH}" "docker-compose-linux-${ARCH}.sha256" -C "$TEMP_DIR"
       mv "$TEMP_DIR/docker-compose-linux-${ARCH}-${DOCKER_COMPOSE_VERSION}.tgz" "$BACKUP_DIR"
     else
-      docker_compose_backup_package="$BACKUP_DIR/docker-compose-linux-${ARCH}-${DOCKER_COMPOSE_VERSION}.tgz"
-      if [[ -f "$docker_compose_backup_package" ]]; then
-        logger info "use backup docker-compose, $docker_compose_backup_package"
-        tar -zxvf "$docker_compose_backup_package" -C "$TEMP_DIR"
-      else
-        logger error "failed to download docker compose"
-        exit 1
-      fi
+      logger error "failed to download docker compose"
+      exit 1
     fi
-
-    cp -f "$docker_compose_package" "$DOWNLOAD_DIR"/docker-compose
-#    rm "$docker_compose_package_sha256"
-    chmod +x "$DOWNLOAD_DIR"/docker-compose
   fi
 
-  logger info "docker all download successfully"
+  cp -f "$docker_compose_package" "$DOWNLOAD_DIR/docker-compose"
+  # rm "$docker_compose_package_sha256"
+  chmod +x "$DOWNLOAD_DIR/docker-compose"
+
+  logger info "docker all download successfully, ls -lah $DOWNLOAD_DIR"
   ls -lah "$DOWNLOAD_DIR"
 
-  if [[ ! -e "$BACKUP_DIR" ]]; then
-    mkdir -p "$BACKUP_DIR"
-  fi
-
+  logger info "backup the $PLATFORM package"
   pushd "$DOWNLOAD_DIR"
   tar -czvf "$PLATFORM.tgz" ./*
   mv "$PLATFORM.tgz" "$BACKUP_DIR"
   popd
-
-#  rm -rf "$DOWNLOAD_DIR"
 
   logger info "docker backup successfully"
 }
