@@ -1,2 +1,7 @@
 # deployment
-shell deployment srcipt
+shell deployment script
+
+##
+./docker download
+./docker download debian x86_64
+
