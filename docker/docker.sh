@@ -182,10 +182,7 @@ download() {
 
     if download_with_urls "$DOCKER_COMPOSE_URL" "$DOCKER_COMPOSE_URL.sha256" && verify_sha256 "$TEMP_DIR/$docker_compose_binary" "$TEMP_DIR/$docker_compose_binary.sha256"; then
       logger info "docker-compose 下载成功"
-      pushd "$TEMP_DIR"
-      tar -czf "$docker_compose_backup_package" "$docker_compose_binary" "$docker_compose_binary.sha256" -C "$TEMP_DIR"
-      mv "$docker_compose_backup_package" "$BACKUP_DIR"
-      popd
+      tar -C "$TEMP_DIR" -czf "$BACKUP_DIR/$docker_compose_backup_package" "$docker_compose_binary" "$docker_compose_binary.sha256"
     else
       logger error "docker-compose 下载失败"
       exit 1
