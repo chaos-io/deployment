@@ -205,23 +205,22 @@ download() {
 }
 
 install() {
-  logger info "Start the offline installation."
+  logger info "开始离线安装 docker"
 
   sudo systemctl is-system-running docker && {
-    logger warn "docker is already running, the installation was aborted"
+    logger warn "docker 已经在运行中，安装终止"
     return 0
   }
 
-  logger info "docker was not running"
   if [ -e "$BACKUP_DIR/$PLATFORM.tgz" ]; then
-    logger info "docker package was already existed"
+    logger info "docker 安装包已存在，使用该安装包, $BACKUP_DIR/$PLATFORM.tgz"
     tar -xzvf "$BACKUP_DIR/$PLATFORM.tgz" -C /usr/local/bin/
   else
-    logger info "docker package not exit, please download first"
+    logger error "docker 安装包不存在，请下进行下载，$BACKUP_DIR/$PLATFORM.tgz"
     return 1
   fi
 
-  logger debug "generate /etc/systemd/system/docker.service"
+  logger debug "生成 /etc/systemd/system/docker.service"
   cat >"/etc/systemd/system/docker.service" <<EOF
 [Unit]
 Description=Docker Application Container Engine
@@ -241,7 +240,7 @@ KillMode=process
 WantedBy=multi-user.target
 EOF
 
-  logger debug "generate /etc/docker/daemon.json"
+  logger debug "生成 /etc/docker/daemon.json"
   if [[ ! -e "/etc/docker" ]]; then
     mkdir -p "/etc/docker"
   fi
@@ -270,28 +269,28 @@ EOF
 }
 EOF
 
-  logger debug "enable and start docker"
+  logger debug "配置并启动 docker"
   sudo systemctl enable docker
   sudo systemctl daemon-reload && sudo systemctl restart docker
 
   if check_cmd_status "systemctl is-system-running docker"; then
-    check_cmd_status "docker info" 60 3 && logger info "install docker offline successfully"
+    check_cmd_status "docker info" 30 3 && logger info "离线安装 docker 成功"
   else
-    logger error "docker not running, please check it manually"
+    logger error "docker 没有启动成功，请手动检查状态"
   fi
 }
 
 install_online() {
-  logger info "Start the official online installation."
+  logger info "进行官方线上安装 docker"
   for pkg in docker.io docker-doc docker-compose docker-compose-v2 containerd runc; do sudo apt-get remove $pkg; done
   curl -fsSL https://get.docker.com -o get-docker.sh
   sh get-docker.sh --dry-run
   sh get-docker.sh --version $DOCKER_VERSION --mirror Aliyun
-  logger info "Installation complete."
+  logger info "docker 线上安装成功"
 }
 
 read_uninstall_answer() {
-  read -t 30 -n1 -p "Will be uninstall, are you sure? [Y/N]? " -r answer
+  read -t 30 -n1 -p "开始卸载 docker，是否确定? [Y/N]? " -r answer
   case $answer in
   Y | y)
     echo
@@ -310,7 +309,7 @@ read_uninstall_answer() {
 }
 
 uninstall_online() {
-  logger info "Start the official online uninstallation."
+  logger info "进行官方线上卸载 docker"
   read_uninstall_answer || exit 1
   sudo apt-get purge docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin docker-ce-rootless-extras
   sudo rm -rf /var/lib/docker
@@ -319,11 +318,11 @@ uninstall_online() {
 }
 
 uninstall() {
-  logger info "Start the uninstallation."
+  logger info "进行线下卸载 docker"
   read_uninstall_answer || exit 1
 
   if [[ "$(sudo systemctl is-system-running docker)" == active ]]; then
-    logger info "docker is running, try to stop it"
+    logger info "停止正在运行的 docker"
     sudo systemctl stop docker
   fi
 
@@ -338,7 +337,7 @@ uninstall() {
     sudo systemctl daemon-reload
   )
 
-  logger info "Uninstallation complete."
+  logger info "docker 卸载完成"
 }
 
 main() {
