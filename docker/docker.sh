@@ -248,9 +248,10 @@ EOF
     mkdir -p "/etc/docker"
   fi
 
+  now=$(date "+%Y-%m-%d-%H-%M-%S")
   DAEMON_FILE="/etc/docker/daemon.json"
   if [ -e "$DAEMON_FILE" ]; then
-    DAEMON_FILE="/etc/docker/daemon.json.backup"
+    DAEMON_FILE="/etc/docker/daemon.json-$now"
   fi
 
   cat >"$DAEMON_FILE" <<EOF
@@ -271,6 +272,23 @@ EOF
     },
   "data-root": "/var/lib/docker"
 }
+EOF
+
+  logger debug "生成 /proxy.conf"
+  PROXY_DIR="/etc/systemd/system/docker.service.d"
+  PROXY_FILE="$PROXY_DIR/proxy.conf"
+  if [[ ! -e "$PROXY_DIR" ]]; then
+    mkdir -p "$PROXY_DIR"
+  fi
+  if [[ -e "$PROXY_FILE" ]]; then
+    PROXY_FILE="$PROXY_DIR/proxy.conf-$now"
+  fi
+
+  cat >"$PROXY_FILE" <<EOF
+#[Service]
+#Environment="HTTP_PROXY=http://127.0.0.1:7890/"
+#Environment="HTTPS_PROXY=http://127.0.0.1:7890/"
+#Environment="NO_PROXY=localhost,127.0.0.1"
 EOF
 
   logger debug "配置并启动 docker"
@@ -332,11 +350,13 @@ uninstall() {
   fi
 
   (
+    now=$(date "+%Y-%m-%d-%H-%M-%S")
     set -x
     sudo systemctl disable docker
     sudo rm -rf /etc/systemd/system/docker.service
-    sudo mv /etc/docker/daemon.json /etc/docker/daemon.json-"$(date "+%Y-%m-%d-%H-%M-%S")"
+    sudo mv /etc/docker/daemon.json /etc/docker/daemon.json-"$now"
     sudo rm -rf /usr/local/bin/containerd /usr/local/bin/containerd-shim-runc-v2 /usr/local/bin/ctr /usr/local/bin/docker /usr/local/bin/docker-init /usr/local/bin/docker-proxy /usr/local/bin/dockerd /usr/local/bin/runc /usr/local/lib/docker/cli-plugins/docker-compose
+    sudo mv /etc/systemd/system/docker.service.d/proxy.conf /etc/systemd/system/docker.service.d/proxy.conf-"$now"
     hash -r # 清除 Bash 的可执行文件路径缓存
     sudo systemctl daemon-reload
   )
