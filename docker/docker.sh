@@ -47,8 +47,8 @@ logger() {
 
 get_os() {
   case "$(uname -s)" in
-  Linux)   OS="linux" ;;
-  Darwin)  OS="darwin" ;;
+  Linux) OS="linux" ;;
+  Darwin) OS="darwin" ;;
   CYGWIN* | MINGW* | MSYS*) OS="windows" ;;
   esac
   echo "$OS" | tr '[:upper:]' '[:lower:]'
@@ -176,7 +176,7 @@ download() {
     logger info "使用备份的 docker-compose, $BACKUP_DIR/$docker_compose_backup_package"
     tar -xzf "$BACKUP_DIR/$docker_compose_backup_package" -C "$TEMP_DIR"
   else
-   # https://github.com/docker/compose/releases/download/v2.37.2/docker-compose-linux-x86_64
+    # https://github.com/docker/compose/releases/download/v2.37.2/docker-compose-linux-x86_64
     DOCKER_COMPOSE_URL="https://ghfast.top/https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-${OS}-${ARCH}"
     logger info "下载 docker-compose, $DOCKER_COMPOSE_URL"
 
@@ -328,21 +328,18 @@ uninstall() {
   if [[ "$(sudo systemctl is-active docker)" == active ]]; then
     logger info "停止正在运行的 docker"
     sudo systemctl stop docker
+    sleep 2
   fi
 
   (
     set -x
     sudo systemctl disable docker
     sudo rm -rf /etc/systemd/system/docker.service
-    sudo rm -rf /etc/docker/daemon.json
+    sudo mv /etc/docker/daemon.json /etc/docker/daemon.json-"$(date "+%Y-%m-%d-%H-%M-%S")"
     sudo rm -rf /usr/local/bin/containerd /usr/local/bin/containerd-shim-runc-v2 /usr/local/bin/ctr /usr/local/bin/docker /usr/local/bin/docker-init /usr/local/bin/docker-proxy /usr/local/bin/dockerd /usr/local/bin/runc /usr/local/lib/docker/cli-plugins/docker-compose
-    sudo rm -rf /var/lib/docker
-    sudo rm -rf /var/lib/containerd
+    hash -r # 清除 Bash 的可执行文件路径缓存
     sudo systemctl daemon-reload
   )
-
-  # 清除 Bash 的可执行文件路径缓存
-  hash -r
 
   logger info "docker 卸载完成"
 }
