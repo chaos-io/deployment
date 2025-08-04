@@ -207,7 +207,7 @@ download() {
 install() {
   logger info "开始离线安装 docker"
 
-  sudo systemctl is-system-running docker && {
+  sudo systemctl is-active docker && {
     logger warn "docker 已经在运行中，安装终止"
     return 0
   }
@@ -215,6 +215,9 @@ install() {
   if [ -e "$BACKUP_DIR/$PLATFORM.tgz" ]; then
     logger info "docker 安装包已存在，使用该安装包, $BACKUP_DIR/$PLATFORM.tgz"
     tar -xzvf "$BACKUP_DIR/$PLATFORM.tgz" -C /usr/local/bin/
+
+    sudo mkdir -pv /usr/local/lib/docker/cli-plugins
+    sudo mv /usr/local/bin/docker-compose /usr/local/lib/docker/cli-plugins/docker-compose
   else
     logger error "docker 安装包不存在，请下进行下载，$BACKUP_DIR/$PLATFORM.tgz"
     return 1
@@ -254,6 +257,7 @@ EOF
 {
   "exec-opts": ["native.cgroupdriver=systemd"],
   "registry-mirrors": [
+    "https://mirror.ccs.tencentyun.com",
     "https://docker.nju.edu.cn/",
     "https://kuamavit.mirror.aliyuncs.com"
   ],
@@ -273,7 +277,7 @@ EOF
   sudo systemctl enable docker
   sudo systemctl daemon-reload && sudo systemctl restart docker
 
-  if check_cmd_status "systemctl is-system-running docker"; then
+  if check_cmd_status "systemctl is-active docker"; then
     check_cmd_status "docker info" 30 3 && logger info "离线安装 docker 成功"
   else
     logger error "docker 没有启动成功，请手动检查状态"
@@ -321,7 +325,7 @@ uninstall() {
   logger info "进行线下卸载 docker"
   read_uninstall_answer || exit 1
 
-  if [[ "$(sudo systemctl is-system-running docker)" == active ]]; then
+  if [[ "$(sudo systemctl is-active docker)" == active ]]; then
     logger info "停止正在运行的 docker"
     sudo systemctl stop docker
   fi
@@ -331,11 +335,14 @@ uninstall() {
     sudo systemctl disable docker
     sudo rm -rf /etc/systemd/system/docker.service
     sudo rm -rf /etc/docker/daemon.json
-    sudo rm -rf /usr/local/bin/containerd /usr/local/bin/containerd-shim-runc-v2 /usr/local/bin/ctr /usr/local/bin/docker /usr/local/bin/docker-compose /usr/local/bin/docker-init /usr/local/bin/docker-proxy /usr/local/bin/dockerd /usr/local/bin/runc
+    sudo rm -rf /usr/local/bin/containerd /usr/local/bin/containerd-shim-runc-v2 /usr/local/bin/ctr /usr/local/bin/docker /usr/local/bin/docker-init /usr/local/bin/docker-proxy /usr/local/bin/dockerd /usr/local/bin/runc /usr/local/lib/docker/cli-plugins/docker-compose
     sudo rm -rf /var/lib/docker
     sudo rm -rf /var/lib/containerd
     sudo systemctl daemon-reload
   )
+
+  # 清除 Bash 的可执行文件路径缓存
+  hash -r
 
   logger info "docker 卸载完成"
 }
