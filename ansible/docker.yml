@@ -1,0 +1,29 @@
+---
+- name: docker 安装
+  hosts: all
+  become: true
+  vars:
+    workdir: /opt/deployment/docker
+
+  tasks:
+    - name: 创建工作目录
+      ansible.builtin.file:
+        path: "{{ workdir }}"
+        state: directory
+        mode: '0755'
+
+    - name: 上传 docker.sh 脚本
+      ansible.builtin.copy:
+        src: ../docker/docker.sh
+        dest: "{{ workdir }}/docker.sh"
+        mode: '0755'
+
+    - name: docker 包下载
+      ansible.builtin.shell: ./docker.sh download
+      args:
+        chdir: "{{ workdir }}"
+
+    - name: docker 安装
+      ansible.builtin.shell: ./docker.sh install
+      args:
+        chdir: "{{ workdir }}"
