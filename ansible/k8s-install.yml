@@ -1,0 +1,172 @@
+---
+- hosts: k8s_cluster
+  become: true
+  tasks:
+    - name: 更新系统
+      apt:
+        update_cache: yes
+        upgrade: dist
+
+    - name: 关闭 swap
+      command: swapoff -a
+      ignore_errors: yes
+
+    - name: 永久关闭 swap
+      replace:
+        path: /etc/fstab
+        regexp: '(\s+)swap(\s+)'
+        replace: '# \1swap\2'
+
+    - name: 开启内核模块
+      copy:
+        dest: /etc/modules-load.d/containerd.conf
+        content: |
+          overlay
+          br_netfilter
+
+    - name: 加载内核模块
+      shell: |
+        modprobe overlay
+        modprobe br_netfilter
+
+    - name: 配置 sysctl
+      copy:
+        dest: /etc/sysctl.d/kubernetes.conf
+        content: |
+          net.bridge.bridge-nf-call-iptables  = 1
+          net.bridge.bridge-nf-call-ip6tables = 1
+          net.ipv4.ip_forward                 = 1
+
+    - name: 应用 sysctl
+      command: sysctl --system
+
+    - name: 安装依赖
+      apt:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - apt-transport-https
+        - ca-certificates
+        - curl
+        - gnupg
+
+    # ------------------ Docker 源 & containerd.io ------------------
+
+    - name: 删除旧的 docker.gpg
+      file:
+        path: /etc/apt/keyrings/docker.gpg
+        state: absent
+
+    - name: 确保 keyrings 目录存在
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: 下载并安装 Docker GPG key
+      get_url:
+        url: https://download.docker.com/linux/debian/gpg
+        dest: /etc/apt/keyrings/docker.gpg
+        mode: '0644'
+
+    - name: 转换 gpg 格式
+      command: gpg --dearmor -o /etc/apt/keyrings/docker.gpg /etc/apt/keyrings/docker.gpg
+      args:
+        creates: /etc/apt/keyrings/docker.gpg
+
+    - name: 添加 Docker apt 源
+      copy:
+        dest: /etc/apt/sources.list.d/docker.list
+        content: |
+          deb [arch={{ ansible_architecture }} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable
+
+    - name: 更新 apt 缓存
+      apt:
+        update_cache: yes
+
+    - name: 安装 containerd.io
+      apt:
+        name: containerd.io
+        state: present
+
+    - name: 配置 containerd
+      shell: |
+        mkdir -p /etc/containerd
+        containerd config default > /etc/containerd/config.toml
+        sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+      args:
+        creates: /etc/containerd/config.toml
+
+    - name: 启动 containerd
+      systemd:
+        name: containerd
+        state: restarted
+        enabled: yes
+
+    # ------------------ Kubernetes ------------------
+    - name: 添加 Kubernetes GPG Key
+      shell: |
+        curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key \
+        | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+      args:
+        creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+    - name: 添加 Kubernetes APT 源
+      copy:
+        dest: /etc/apt/sources.list.d/kubernetes.list
+        content: |
+          deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /
+
+    - name: 安装 kubeadm, kubelet, kubectl
+      apt:
+        update_cache: yes
+        name:
+          - kubelet
+          - kubeadm
+          - kubectl
+        state: present
+
+    - name: 锁定版本
+      command: apt-mark hold kubelet kubeadm kubectl
+
+# ------------------ Master 初始化 ------------------
+- hosts: k8s_master
+  become: true
+  tasks:
+    - name: 初始化 Kubernetes Master
+      shell: |
+        kubeadm init --apiserver-advertise-address={{ ansible_host }} \
+        --pod-network-cidr=10.244.0.0/16
+      args:
+        creates: /etc/kubernetes/admin.conf
+      register: kubeadm_init
+
+    - name: 配置 kubectl
+      shell: |
+        mkdir -p $HOME/.kube
+        cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+        chown $(id -u):$(id -g) $HOME/.kube/config
+      args:
+        creates: $HOME/.kube/config
+
+    - name: 安装 Flannel 网络插件
+      command: kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: 保存 join 命令
+      shell: kubeadm token create --print-join-command
+      register: join_cmd
+
+    - name: 设置 join command fact
+      set_fact:
+        worker_join_cmd: "{{ join_cmd.stdout }}"
+
+# ------------------ Worker 加入集群 ------------------
+- hosts: k8s_worker
+  become: true
+  tasks:
+    - name: Worker 加入集群
+      shell: "{{ hostvars['master']['worker_join_cmd'] }} --ignore-preflight-errors=all"
+      args:
+        creates: /etc/kubernetes/kubelet.conf
