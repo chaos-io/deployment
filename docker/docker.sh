@@ -1,7 +1,6 @@
 #!/bin/bash
 set -eu
 
-CURRENT_DIR=$(cd "$(dirname "$0")" && pwd)
 DOCKER_VERSION=27.5.1
 DOCKER_COMPOSE_VERSION=v2.37.2
 
@@ -68,50 +67,68 @@ x86_64 | aarch64) ARCH="$3" ;;
 esac
 [ -z "$ARCH" ] && logger error "illegal arch" && (usage >&2 && exit 2)
 
-PLATFORM="$OS-$ARCH"
-logger debug "platform: $PLATFORM"
-
-DOWNLOAD_DIR="$CURRENT_DIR/$PLATFORM"
-BACKUP_DIR="$CURRENT_DIR/backup"
-TEMP_DIR="$CURRENT_DIR/temp"
-
-download_with_urls() {
-  pushd "$TEMP_DIR"
+download_url() {
   [ "$#" -gt 0 ] || {
-    logger warn "parameter is empty"
+    logger warn "url is empty"
     return 1
   }
 
-  for url in "$@"; do
-    if [[ -e /usr/bin/wget ]]; then
-      wget -c --no-check-certificate -T 10 -t 3 "$url" || {
-        logger error "failed to wget download url, $url"
-        return 1
-      }
-    else
-      curl -L -k -O --connect-timeout 10 --max-time 60 --retry 3 "$url" || {
-        logger error "failed to curl download url, $url"
-        return 1
-      }
-    fi
-  done
-  popd
+  url=$1
+  name=$2
+
+  command -v wget >/dev/null 2>&1 && {
+    wget -c --no-check-certificate -T 10 -t 3 \
+      ${name:+-O "$name"} "$url"
+  } || {
+    curl -L -k --connect-timeout 10 --max-time 60 --retry 3 \
+      ${name:+-o "$name"} "$url"
+  } || {
+    logger error "failed to download url, $url"
+    return 1
+  }
 }
 
 verify_sha256() {
   local file="$1"
   local hash_file="$2"
+  # 参数与文件校验
+  [[ -f "$file" ]] || {
+    logger error "file not found: $file"
+    return 2
+  }
 
-  actual_hash=$(sha256sum -b "$file" | awk '{print $1}')
-  expected_hash=$(awk '{print $1}' "$hash_file")
-  if [[ "$actual_hash" == "$expected_hash" ]]; then
-    return 0
+  [[ -f "$hash_file" ]] || {
+    logger error "hash file not found: $hash_file"
+    return 2
+  }
+
+  local actual_hash
+  local expected_hash
+  local hasher
+
+  # 选择可用的 SHA-256 工具
+  if command -v sha256sum >/dev/null 2>&1; then
+    hasher=(sha256sum)
+  elif command -v shasum >/dev/null 2>&1; then
+    hasher=(shasum -a 256)
   else
-    logger error "failed to verify the file: $file"
-    logger warn "sha256 get : $actual_hash"
-    logger warn "sha256 want: $expected_hash"
-    return 1
+    logger error "no SHA-256 tool available"
+    return 2
   fi
+
+  # 计算实际 hash
+  actual_hash="$("${hasher[@]}" "$file" | awk '{print $1}') | tr '[:upper:]' '[:lower:]'"
+  expected_hash="$(awk '{print $1}' "$hash_file") | tr '[:upper:]' '[:lower:]'"
+
+  if [[ "${actual_hash}" == "${expected_hash}" ]]; then
+    return 0
+  fi
+
+  logger error "SHA-256 verification failed"
+  logger warn "file          : $file"
+  logger warn "actual hash   : $actual_hash"
+  logger warn "expected hash : $expected_hash"
+  return 1
 }
 
 # check_cmd_status "ls -l"
@@ -135,73 +152,90 @@ check_cmd_status() {
   return 1
 }
 
+gpg() {
+  logger info "配置docker gpg"
+  DOCKER_GPG_URL="https://download.docker.com/linux/debian/gpg"
+  pushd "$TEMP_DIR"
+  download_url "$DOCKER_GPG_URL"
+  popd
+
+  sudo curl -fsSL https://download.docker.com/linux/debian/gpg -o docker.asc
+  sudo chmod a+r docker.asc
+
+  sudo tee /etc/apt/sources.list.d/docker.sources <<EOF
+  Types: deb
+  URIs: https://download.docker.com/linux/debian
+  Suites: $(. /etc/os-release && echo "$VERSION_CODENAME")
+  Components: stable
+  Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+}
+
+# 脚本常量
+PLATFORM="$OS-$ARCH"
+WORKING_DIR=$(cd "$(dirname "$0")" && pwd)
+logger debug "platform:$PLATFORM", "working dir:$WORKING_DIR"
+PLATFORM_DIR="$WORKING_DIR/$PLATFORM"
+BACKUP_DIR="$WORKING_DIR/backup"
+TEMP_DIR="$WORKING_DIR/temp"
+
 download() {
   logger info "开始下载 docker 文件"
 
-  if [[ ! -e "$DOWNLOAD_DIR" ]]; then
-    mkdir -p "$DOWNLOAD_DIR"
+  if [[ ! -e "$TEMP_DIR" ]]; then
+    mkdir -p "$TEMP_DIR"
   fi
   if [[ ! -e "$BACKUP_DIR" ]]; then
     mkdir -p "$BACKUP_DIR"
   fi
-  if [[ ! -e "$TEMP_DIR" ]]; then
-    mkdir -p "$TEMP_DIR"
-  fi
 
-  backup_package="$BACKUP_DIR/$PLATFORM.tgz"
-  if [[ -e "$backup_package" ]]; then
-    logger info "发现并使用备份文件, $backup_package"
-    tar -xzf "$backup_package" -C "$DOWNLOAD_DIR"
-    logger info "下载 docker 文件成功, $DOWNLOAD_DIR"
-    exit 0
-  fi
+  pushd "$TEMP_DIR"
 
-  docker_temp_package="$TEMP_DIR/docker-$PLATFORM-$DOCKER_VERSION.tgz"
-  if [[ -f "$docker_temp_package" ]]; then
+  docker_package="docker-$PLATFORM-$DOCKER_VERSION.tgz"
+  if [[ -f "$BACKUP_DIR/$docker_package" ]]; then
     logger info "docker 文件已经存在，无需再次下载"
+    cp "$BACKUP_DIR/$docker_package" "."
   else
-    #  DOCKER_URL="https://download.docker.com/linux/static/stable/${ARCH}/docker-${DOCKER_VERSION}.tgz"
-    #  DOCKER_URL="https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/static/stable/${ARCH}/docker-${DOCKER_VERSION}.tgz"
+    # DOCKER_URL="https://download.docker.com/linux/static/stable/${ARCH}/docker-${DOCKER_VERSION}.tgz"
+    # DOCKER_URL="https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/static/stable/${ARCH}/docker-${DOCKER_VERSION}.tgz"
     DOCKER_URL="https://mirrors.aliyun.com/docker-ce/${OS}/static/stable/${ARCH}/docker-${DOCKER_VERSION}.tgz"
-    download_with_urls "$DOCKER_URL"
-    mv "$TEMP_DIR/docker-$DOCKER_VERSION.tgz" "$docker_temp_package"
-    logger info "下载 docker 完成, $docker_temp_package"
+    download_url "$DOCKER_URL" "$docker_package"
+    logger info "下载 docker 完成, $docker_package"
+    cp "$docker_package" "$BACKUP_DIR/$docker_package"
   fi
 
-  tar -xzf "$docker_temp_package" --strip-components=1 -C "$DOWNLOAD_DIR"
-
-  docker_compose_binary="docker-compose-${OS}-${ARCH}"
-  docker_compose_backup_package="docker-compose-${OS}-${ARCH}-${DOCKER_COMPOSE_VERSION}.tgz"
-  if [[ -f "$BACKUP_DIR/$docker_compose_backup_package" ]]; then
-    logger info "使用备份的 docker-compose, $BACKUP_DIR/$docker_compose_backup_package"
-    tar -xzf "$BACKUP_DIR/$docker_compose_backup_package" -C "$TEMP_DIR"
+  docker_compose="docker-compose-${OS}-${ARCH}"
+  docker_compose_backup="docker-compose-${OS}-${ARCH}-${DOCKER_COMPOSE_VERSION}.tgz"
+  if [[ -f "$BACKUP_DIR/$docker_compose_backup" ]]; then
+    logger info "使用备份的 docker-compose, $BACKUP_DIR/$docker_compose_backup"
+    tar -xzf "$BACKUP_DIR/$docker_compose_backup" -C "$TEMP_DIR"
   else
     # https://github.com/docker/compose/releases/download/v2.37.2/docker-compose-linux-x86_64
-    DOCKER_COMPOSE_URL="https://ghfast.top/https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-${OS}-${ARCH}"
+    DOCKER_COMPOSE_URL="https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-${OS}-${ARCH}"
     logger info "下载 docker-compose, $DOCKER_COMPOSE_URL"
+    if [[ ! -e "$docker_compose.sha256" ]]; then
+      download_url "$DOCKER_COMPOSE_URL.sha256" "$docker_compose.sha256"
+    fi
+    if [[ ! -e "$docker_compose" ]]; then
+      download_url "$DOCKER_COMPOSE_URL" "$docker_compose"
+    fi
 
-    if download_with_urls "$DOCKER_COMPOSE_URL" "$DOCKER_COMPOSE_URL.sha256" && verify_sha256 "$TEMP_DIR/$docker_compose_binary" "$TEMP_DIR/$docker_compose_binary.sha256"; then
-      logger info "docker-compose 下载成功"
-      tar -C "$TEMP_DIR" -czf "$BACKUP_DIR/$docker_compose_backup_package" "$docker_compose_binary" "$docker_compose_binary.sha256"
+    logger info "下载 docker-compose 完成"
+
+    if verify_sha256 "$docker_compose" "$docker_compose.sha256"; then
+      logger info "验证 docker-compose 成功，备份该文件"
+      tar -C "$TEMP_DIR" -czf "$BACKUP_DIR/$docker_compose_backup" "$docker_compose" "$docker_compose.sha256"
     else
       logger error "docker-compose 下载失败"
       exit 1
     fi
   fi
 
-  cp -f "$TEMP_DIR/$docker_compose_binary" "$DOWNLOAD_DIR/docker-compose"
-  chmod +x "$DOWNLOAD_DIR/docker-compose"
-
-  logger info "所有 docker 文件下载完成, ls -lah $DOWNLOAD_DIR"
-  ls -lah "$DOWNLOAD_DIR"
-
-  logger info "备份 docker $PLATFORM 文件至 $BACKUP_DIR"
-  pushd "$DOWNLOAD_DIR"
-  tar -czf "$PLATFORM.tgz" ./*
-  mv "$PLATFORM.tgz" "$BACKUP_DIR"
   popd
 
-  logger info "docker $PLATFORM 备份成功"
+  mv -f "$TEMP_DIR" "$PLATFORM_DIR"
+  logger info "所有 docker 文件下载完成, ls -lah"
+  ls -lah "$PLATFORM_DIR"
 }
 
 install() {

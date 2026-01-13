@@ -1,6 +1,6 @@
 ---
 - name: docker 安装
-  hosts: all
+  hosts: dockergpg
   become: true
   vars:
     workdir: /opt/deployment/docker
@@ -18,12 +18,12 @@
         dest: "{{ workdir }}/docker.sh"
         mode: '0755'
 
-    - name: docker 包下载
-      ansible.builtin.shell: ./docker.sh download
-      args:
-        chdir: "{{ workdir }}"
-
-    - name: docker 安装
-      ansible.builtin.shell: ./docker.sh install
-      args:
-        chdir: "{{ workdir }}"
+#    - name: docker 包下载
+#      ansible.builtin.shell: ./docker.sh download
+#      args:
+#        chdir: "{{ workdir }}"
+#
+#    - name: docker 安装
+#      ansible.builtin.shell: ./docker.sh install
+#      args:
+#        chdir: "{{ workdir }}"

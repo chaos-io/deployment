@@ -5,6 +5,10 @@ ansible playbook
 ## 使用
 
 1. 安装ansible
+```bash
+ansible all -m ping
+```
+
 2. 配置远程系统，并确保本机器的public SSH key必须在这些系统的authorized_keys中
 ```bash
 cat > /etc/ansible/hosts << "EOF"
