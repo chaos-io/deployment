@@ -152,24 +152,17 @@ check_cmd_status() {
   return 1
 }
 
-gpg() {
-  logger info "配置docker gpg"
-  DOCKER_GPG_URL="https://download.docker.com/linux/debian/gpg"
-  pushd "$TEMP_DIR"
-  download_url "$DOCKER_GPG_URL"
-  popd
+#download_gpg() {
+#  sudo chmod a+r docker.asc
 
-  sudo curl -fsSL https://download.docker.com/linux/debian/gpg -o docker.asc
-  sudo chmod a+r docker.asc
-
-  sudo tee /etc/apt/sources.list.d/docker.sources <<EOF
-  Types: deb
-  URIs: https://download.docker.com/linux/debian
-  Suites: $(. /etc/os-release && echo "$VERSION_CODENAME")
-  Components: stable
-  Signed-By: /etc/apt/keyrings/docker.asc
-EOF
-}
+#  sudo tee /etc/apt/sources.list.d/docker.sources <<EOF
+#  Types: deb
+#  URIs: https://download.docker.com/linux/debian
+#  Suites: $(. /etc/os-release && echo "$VERSION_CODENAME")
+#  Components: stable
+#  Signed-By: /etc/apt/keyrings/docker.asc
+#EOF
+#}
 
 # 脚本常量
 PLATFORM="$OS-$ARCH"
@@ -179,9 +172,21 @@ PLATFORM_DIR="$WORKING_DIR/$PLATFORM"
 BACKUP_DIR="$WORKING_DIR/backup"
 TEMP_DIR="$WORKING_DIR/temp"
 
+# DOCKER_URL="https://download.docker.com/linux/static/stable/${ARCH}/docker-${DOCKER_VERSION}.tgz"
+# DOCKER_URL="https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/static/stable/${ARCH}/docker-${DOCKER_VERSION}.tgz"
+DOCKER_URL="https://mirrors.aliyun.com/docker-ce/${OS}/static/stable/${ARCH}/docker-${DOCKER_VERSION}.tgz"
+DOCKER_GPG_URL="https://download.docker.com/linux/debian/gpg"
+# https://github.com/docker/compose/releases/download/v2.37.2/docker-compose-linux-x86_64
+DOCKER_COMPOSE_URL="https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-${OS}-${ARCH}"
+DOCKER="docker-$PLATFORM-$DOCKER_VERSION.tgz"
+DOCKER_COMPOSE="docker-compose-${OS}-${ARCH}"
+
 download() {
   logger info "开始下载 docker 文件"
 
+  if [[ -e "$PLATFORM_DIR" ]]; then
+    rm -rf "$PLATFORM_DIR"
+  fi
   if [[ ! -e "$TEMP_DIR" ]]; then
     mkdir -p "$TEMP_DIR"
   fi
@@ -191,51 +196,48 @@ download() {
 
   pushd "$TEMP_DIR"
 
-  docker_package="docker-$PLATFORM-$DOCKER_VERSION.tgz"
-  if [[ -f "$BACKUP_DIR/$docker_package" ]]; then
+  logger info "docker 二进制下载"
+  if [[ -f "$BACKUP_DIR/$DOCKER" ]]; then
     logger info "docker 文件已经存在，无需再次下载"
-    cp "$BACKUP_DIR/$docker_package" "."
+    cp "$BACKUP_DIR/$DOCKER" "."
   else
-    # DOCKER_URL="https://download.docker.com/linux/static/stable/${ARCH}/docker-${DOCKER_VERSION}.tgz"
-    # DOCKER_URL="https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/static/stable/${ARCH}/docker-${DOCKER_VERSION}.tgz"
-    DOCKER_URL="https://mirrors.aliyun.com/docker-ce/${OS}/static/stable/${ARCH}/docker-${DOCKER_VERSION}.tgz"
-    download_url "$DOCKER_URL" "$docker_package"
-    logger info "下载 docker 完成, $docker_package"
-    cp "$docker_package" "$BACKUP_DIR/$docker_package"
+
+    download_url "$DOCKER_URL" "$DOCKER"
+    logger info "下载 docker 完成, $DOCKER"
+    cp "$DOCKER" "$BACKUP_DIR/$DOCKER"
   fi
 
-  docker_compose="docker-compose-${OS}-${ARCH}"
-  docker_compose_backup="docker-compose-${OS}-${ARCH}-${DOCKER_COMPOSE_VERSION}.tgz"
-  if [[ -f "$BACKUP_DIR/$docker_compose_backup" ]]; then
-    logger info "使用备份的 docker-compose, $BACKUP_DIR/$docker_compose_backup"
-    tar -xzf "$BACKUP_DIR/$docker_compose_backup" -C "$TEMP_DIR"
+  logger info "配置docker gpg"
+  download_url "$DOCKER_GPG_URL" docker.asc
+
+  logger info "docker-compose 二进制下载"
+  if [[ -f "$BACKUP_DIR/$DOCKER_COMPOSE" ]]; then
+    logger info "使用备份的 docker-compose"
+    cp "$BACKUP_DIR/$DOCKER_COMPOSE" "$DOCKER_COMPOSE"
   else
-    # https://github.com/docker/compose/releases/download/v2.37.2/docker-compose-linux-x86_64
-    DOCKER_COMPOSE_URL="https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-${OS}-${ARCH}"
-    logger info "下载 docker-compose, $DOCKER_COMPOSE_URL"
-    if [[ ! -e "$docker_compose.sha256" ]]; then
-      download_url "$DOCKER_COMPOSE_URL.sha256" "$docker_compose.sha256"
+    if [[ ! -e "$DOCKER_COMPOSE" ]]; then
+      download_url "$DOCKER_COMPOSE_URL" "$DOCKER_COMPOSE"
     fi
-    if [[ ! -e "$docker_compose" ]]; then
-      download_url "$DOCKER_COMPOSE_URL" "$docker_compose"
-    fi
-
     logger info "下载 docker-compose 完成"
+    cp "$DOCKER_COMPOSE" "$BACKUP_DIR/$DOCKER_COMPOSE"
+  fi
 
-    if verify_sha256 "$docker_compose" "$docker_compose.sha256"; then
-      logger info "验证 docker-compose 成功，备份该文件"
-      tar -C "$TEMP_DIR" -czf "$BACKUP_DIR/$docker_compose_backup" "$docker_compose" "$docker_compose.sha256"
-    else
-      logger error "docker-compose 下载失败"
-      exit 1
-    fi
+  if [[ ! -e "$DOCKER_COMPOSE.sha256" ]]; then
+    download_url "$DOCKER_COMPOSE_URL.sha256" "$DOCKER_COMPOSE.sha256"
+  fi
+
+  if verify_sha256 "$DOCKER_COMPOSE" "$DOCKER_COMPOSE.sha256"; then
+    logger info "验证 docker-compose 成功"
+  else
+    logger error "验证 docker-compose 失败"
+    exit 1
   fi
 
   popd
 
   mv -f "$TEMP_DIR" "$PLATFORM_DIR"
-  logger info "所有 docker 文件下载完成, ls -lah"
-  ls -lah "$PLATFORM_DIR"
+  logger info "所有 docker 文件下载完成, ls -lh"
+  ls -lh "$PLATFORM_DIR"
 }
 
 install() {
