@@ -29,16 +29,16 @@ logger() {
 
   case "$1" in
   debug)
-    echo -e "$TIMESTAMP  \033[36mDEBUG\033[0m  $MSG"
+    echo -e "\033[36mDEBUG\033[0m  $TIMESTAMP  $MSG"
     ;;
   info)
-    echo -e "$TIMESTAMP  \033[32mINFO \033[0m  $MSG"
+    echo -e "\033[32mINFO \033[0m  $TIMESTAMP  $MSG"
     ;;
   warn)
-    echo -e "$TIMESTAMP  \033[33mWARN \033[0m  $MSG"
+    echo -e "\033[33mWARN \033[0m  $TIMESTAMP  $MSG"
     ;;
   error)
-    echo -e "$TIMESTAMP  \033[31mERROR\033[0m  $MSG"
+    echo -e "\033[31mERROR\033[0m  $TIMESTAMP  $MSG"
     ;;
   *) ;;
   esac
@@ -135,8 +135,8 @@ verify_sha256() {
 check_cmd_status() {
   logger debug "cmd: $1"
   local cmd="$1"
-  local retries="${2:-30}" # 重试次数，默认为30次
-  local interval="${3:-1}" # 间隔时间，默认为1秒
+  local retries="${2:-10}" # 重试次数，如果$2为空，则使用默认值10
+  local interval="${3:-6}" # 间隔时间
 
   for ((i = 1; i <= retries; i++)); do
     if bash -c "$cmd"; then
@@ -236,7 +236,7 @@ download() {
   popd
 
   mv -f "$TEMP_DIR" "$PLATFORM_DIR"
-  logger info "所有 docker 文件下载完成, ls -lh"
+  logger info "所有 docker 文件下载完成, ls -lh $PLATFORM_DIR"
   ls -lh "$PLATFORM_DIR"
 }
 
@@ -248,16 +248,36 @@ install() {
     return 0
   }
 
-  if [ -e "$BACKUP_DIR/$PLATFORM.tgz" ]; then
-    logger info "docker 安装包已存在，使用该安装包, $BACKUP_DIR/$PLATFORM.tgz"
-    tar -xzvf "$BACKUP_DIR/$PLATFORM.tgz" -C /usr/local/bin/
-
-    sudo mkdir -pv /usr/local/lib/docker/cli-plugins
-    sudo mv /usr/local/bin/docker-compose /usr/local/lib/docker/cli-plugins/docker-compose
-  else
-    logger error "docker 安装包不存在，请下进行下载，$BACKUP_DIR/$PLATFORM.tgz"
-    return 1
+  if [[ ! -e "$PLATFORM" ]]; then
+    logger warn "docker 安装包不存在，进行下载"
+    download
   fi
+
+  pushd "$PLATFORM"
+  logger info "开始安装 docker"
+  sudo tar -xzvf "$DOCKER" --strip-components=1 -C /usr/local/bin/
+
+  logger debug "添加 docker 官方 GPG key"
+  sudo mkdir -p /etc/apt/keyrings
+  sudo chmod 0755 /etc/apt/keyrings
+  # sudo curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+  sudo cp "docker.asc" /etc/apt/keyrings/docker.asc
+  sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+  logger debug "添加 docker apt 源"
+  sudo tee /etc/apt/sources.list.d/docker.sources <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/debian
+Suites: $(. /etc/os-release && echo "$VERSION_CODENAME")
+Components: stable
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+
+  sudo mkdir -pv /usr/local/lib/docker/cli-plugins
+  sudo cp "$DOCKER_COMPOSE" /usr/local/lib/docker/cli-plugins/docker-compose
+  chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+  popd
 
   logger debug "生成 /etc/systemd/system/docker.service"
   cat >"/etc/systemd/system/docker.service" <<EOF
@@ -310,7 +330,7 @@ EOF
 }
 EOF
 
-  logger debug "生成 /proxy.conf"
+  logger debug "添加 proxy.conf"
   PROXY_DIR="/etc/systemd/system/docker.service.d"
   PROXY_FILE="$PROXY_DIR/proxy.conf"
   if [[ ! -e "$PROXY_DIR" ]]; then
@@ -332,7 +352,7 @@ EOF
   sudo systemctl daemon-reload && sudo systemctl restart docker
 
   if check_cmd_status "systemctl is-active docker"; then
-    check_cmd_status "docker info" 30 3 && logger info "离线安装 docker 成功"
+    check_cmd_status "docker images" 60 6 && logger info "离线安装 docker 成功"
   else
     logger error "docker 没有启动成功，请手动检查状态"
   fi
