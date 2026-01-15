@@ -140,10 +140,10 @@ check_cmd_status() {
 
   for ((i = 1; i <= retries; i++)); do
     if bash -c "$cmd"; then
-      logger debug "check cmd status is ready"
+      logger debug "$cmd is ready"
       return 0
     else
-      logger warn "[$i] check cmd status is not ready, try again"
+      logger warn "[$i] cmd is not ready, try again"
       sleep "$interval"
     fi
   done
@@ -275,12 +275,12 @@ EOF
 
   sudo mkdir -pv /usr/local/lib/docker/cli-plugins
   sudo cp "$DOCKER_COMPOSE" /usr/local/lib/docker/cli-plugins/docker-compose
-  chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+  sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
   popd
 
   logger debug "生成 /etc/systemd/system/docker.service"
-  cat >"/etc/systemd/system/docker.service" <<EOF
+  sudo tee /etc/systemd/system/docker.service <<EOF
 [Unit]
 Description=Docker Application Container Engine
 Documentation=http://docs.docker.io
@@ -301,7 +301,7 @@ EOF
 
   logger debug "生成 /etc/docker/daemon.json"
   if [[ ! -e "/etc/docker" ]]; then
-    mkdir -p "/etc/docker"
+    sudo mkdir -p "/etc/docker"
   fi
 
   now=$(date "+%Y-%m-%d-%H-%M-%S")
@@ -310,7 +310,7 @@ EOF
     DAEMON_FILE="/etc/docker/daemon.json-$now"
   fi
 
-  cat >"$DAEMON_FILE" <<EOF
+  sudo tee "$DAEMON_FILE" <<EOF
 {
   "exec-opts": ["native.cgroupdriver=systemd"],
   "registry-mirrors": [
@@ -318,7 +318,7 @@ EOF
     "https://docker.nju.edu.cn/",
     "https://kuamavit.mirror.aliyuncs.com"
   ],
-  "hosts": ["unix:///var/run/docker.sock", "tcp://0.0.0.0:2376"],
+  "hosts": ["unix:///var/run/docker.sock"],
   "max-concurrent-downloads": 10,
   "log-driver": "json-file",
   "log-level": "warn",
@@ -334,13 +334,13 @@ EOF
   PROXY_DIR="/etc/systemd/system/docker.service.d"
   PROXY_FILE="$PROXY_DIR/proxy.conf"
   if [[ ! -e "$PROXY_DIR" ]]; then
-    mkdir -p "$PROXY_DIR"
+    sudo mkdir -p "$PROXY_DIR"
   fi
   if [[ -e "$PROXY_FILE" ]]; then
     PROXY_FILE="$PROXY_DIR/proxy.conf-$now"
   fi
 
-  cat >"$PROXY_FILE" <<EOF
+  sudo tee "$PROXY_FILE" <<EOF
 #[Service]
 #Environment="HTTP_PROXY=http://127.0.0.1:7890/"
 #Environment="HTTPS_PROXY=http://127.0.0.1:7890/"
