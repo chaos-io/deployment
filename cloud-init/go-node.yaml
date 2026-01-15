@@ -1,0 +1,115 @@
+#cloud-config
+hostname: go-node
+manage_etc_hosts: true
+timezone: Asia/Shanghai
+
+users:
+  - default
+  - name: go
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ssh-rsa ...TODO 替换
+
+disable_root: true
+ssh_pwauth: false
+
+package_update: true
+package_upgrade: true
+
+packages:
+  # 基础
+  - ca-certificates
+  - curl
+  - wget
+  - gnupg
+  - sudo
+  - vim
+  - bash-completion
+  - tree
+
+  # 网络 / 排错
+  - iproute2
+  - iputils-ping
+  - net-tools
+  - bind9-dnsutils
+  - lsof
+
+  # Go 构建
+  - git
+  - build-essential
+  - make
+  - pkg-config
+
+  # 运维
+  - htop
+  - rsyslog
+  - openssh-server
+
+  # 自动安全更新
+  - unattended-upgrades
+
+write_files:
+  - path: /etc/profile.d/go-env.sh
+    permissions: "0644"
+    content: |
+      export GOPATH=/opt/go
+      export GOBIN=$GOPATH/bin
+      export PATH=/usr/local/go/bin:$GOBIN:$PATH
+      export GOPROXY=https://goproxy.cn,https://proxy.golang.org,direct
+      export GO111MODULE=on
+
+  - path: /etc/systemd/journald.conf.d/99-limit.conf
+    permissions: "0644"
+    content: |
+      [Journal]
+      SystemMaxUse=200M
+      MaxRetentionSec=14day
+
+  - path: /etc/ssh/sshd_config.d/99-basic.conf
+    permissions: "0644"
+    content: |
+      PermitRootLogin no
+      PasswordAuthentication no
+      UseDNS no
+
+runcmd:
+  # locale
+  - locale-gen en_US.UTF-8
+  - update-locale LANG=en_US.UTF-8
+
+  # 安装 Go（官方二进制）
+  - curl -fsSL https://go.dev/dl/go1.24.11.linux-amd64.tar.gz -o /tmp/go.tar.gz
+  - rm -rf /usr/local/go
+  - tar -C /usr/local -xzf /tmp/go.tar.gz
+  - rm -f /tmp/go.tar.gz
+
+  # GOPATH
+  - mkdir -p /opt/go/bin /opt/go/pkg /opt/go/src
+  - chown -R go:go /opt/go
+
+  # 服务
+  - systemctl enable ssh
+  - systemctl enable systemd-timesyncd
+
+  # unattended-upgrades 启用
+  - dpkg-reconfigure -f noninteractive unattended-upgrades
+
+  # 禁用无用服务
+  - systemctl disable avahi-daemon || true
+  - systemctl disable bluetooth || true
+  - systemctl disable cups || true
+
+  # 时间同步
+  - timedatectl set-ntp true
+
+  # 清理
+  - apt autoremove --purge -y
+  - apt clean
+  - rm -rf /var/lib/apt/lists/*
+
+final_message: |
+  Debian 13 Go 编译 / 部署节点初始化完成
+  Go 已安装于 /usr/local/go
