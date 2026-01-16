@@ -231,11 +231,10 @@ download() {
 docker_group() {
   logger info "创建 docker 组（如不存在）"
   sudo getent group docker >/dev/null || sudo groupadd docker
-
-  logger info "将用户 ${DOCKER_USER} 加入 docker 组"
-  usermod -aG docker "${DOCKER_USER}"
-
-  sudo newgrp docker
+  logger info "将用户 $USER 加入 docker 组"
+  sudo usermod -aG docker "$USER"
+  # 立即刷新权限
+  # sudo newgrp docker
 }
 
 install() {
