@@ -33,6 +33,7 @@ packages:
   # 网络 / 排错
   - iproute2
   - iputils-ping
+  - iptables
   - net-tools
   - bind9-dnsutils
   - lsof

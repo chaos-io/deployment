@@ -133,36 +133,24 @@ verify_sha256() {
 
 # check_cmd_status "ls -l"
 check_cmd_status() {
-  logger debug "cmd: $1"
   local cmd="$1"
   local retries="${2:-10}" # 重试次数，如果$2为空，则使用默认值10
   local interval="${3:-6}" # 间隔时间
 
+  logger debug "cmd: $cmd"
+
   for ((i = 1; i <= retries; i++)); do
-    if bash -c "$cmd"; then
+    if bash -c -- "$cmd"; then # 加上 -- 可以防止 $cmd 被当成 bash 参数
       logger debug "$cmd is ready"
       return 0
-    else
-      logger warn "[$i] cmd is not ready, try again"
-      sleep "$interval"
     fi
+    logger warn "[$i/$retries] cmd is not ready, retrying..."
+    sleep "$interval"
   done
 
-  logger error "check cmd status is not ready in finally"
+  logger error "cmd is still not ready after $retries retries"
   return 1
 }
-
-#download_gpg() {
-#  sudo chmod a+r docker.asc
-
-#  sudo tee /etc/apt/sources.list.d/docker.sources <<EOF
-#  Types: deb
-#  URIs: https://download.docker.com/linux/debian
-#  Suites: $(. /etc/os-release && echo "$VERSION_CODENAME")
-#  Components: stable
-#  Signed-By: /etc/apt/keyrings/docker.asc
-#EOF
-#}
 
 # 脚本常量
 PLATFORM="$OS-$ARCH"
@@ -171,7 +159,6 @@ logger debug "platform:$PLATFORM", "working dir:$WORKING_DIR"
 PLATFORM_DIR="$WORKING_DIR/$PLATFORM"
 BACKUP_DIR="$WORKING_DIR/backup"
 TEMP_DIR="$WORKING_DIR/temp"
-
 # DOCKER_URL="https://download.docker.com/linux/static/stable/${ARCH}/docker-${DOCKER_VERSION}.tgz"
 # DOCKER_URL="https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/static/stable/${ARCH}/docker-${DOCKER_VERSION}.tgz"
 DOCKER_URL="https://mirrors.aliyun.com/docker-ce/${OS}/static/stable/${ARCH}/docker-${DOCKER_VERSION}.tgz"
@@ -187,9 +174,10 @@ download() {
   if [[ -e "$PLATFORM_DIR" ]]; then
     rm -rf "$PLATFORM_DIR"
   fi
-  if [[ ! -e "$TEMP_DIR" ]]; then
-    mkdir -p "$TEMP_DIR"
+  if [[ -e "$TEMP_DIR" ]]; then
+    rm -rf "$TEMP_DIR"
   fi
+  mkdir -p "$TEMP_DIR"
   if [[ ! -e "$BACKUP_DIR" ]]; then
     mkdir -p "$BACKUP_DIR"
   fi
@@ -352,7 +340,7 @@ EOF
   sudo systemctl daemon-reload && sudo systemctl restart docker
 
   if check_cmd_status "systemctl is-active docker"; then
-    check_cmd_status "docker images" 60 6 && logger info "离线安装 docker 成功"
+    check_cmd_status "docker images" 10 6 && logger info "离线安装 docker 成功"
   else
     logger error "docker 没有启动成功，请手动检查状态"
   fi
@@ -368,7 +356,7 @@ install_online() {
 }
 
 read_uninstall_answer() {
-  read -t 30 -n1 -p "开始卸载 docker，是否确定? [Y/N]? " -r answer
+  read -t 30 -n1 -p "开始卸载 docker，是否确定? [y/n]? " -r answer
   case $answer in
   Y | y)
     echo
