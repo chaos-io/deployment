@@ -228,6 +228,16 @@ download() {
   ls -lh "$PLATFORM_DIR"
 }
 
+docker_group() {
+  logger info "创建 docker 组（如不存在）"
+  sudo getent group docker >/dev/null || sudo groupadd docker
+
+  logger info "将用户 ${DOCKER_USER} 加入 docker 组"
+  usermod -aG docker "${DOCKER_USER}"
+
+  sudo newgrp docker
+}
+
 install() {
   logger info "开始离线安装 docker"
 
@@ -334,6 +344,11 @@ EOF
 #Environment="HTTPS_PROXY=http://127.0.0.1:7890/"
 #Environment="NO_PROXY=localhost,127.0.0.1"
 EOF
+
+  # 非root用户权限组配置
+  if [[ "$(id -u)" -ne 0 ]]; then
+    docker_group
+  fi
 
   logger debug "配置并启动 docker"
   sudo systemctl enable docker
