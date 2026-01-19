@@ -249,7 +249,7 @@ install() {
     if ! id -nG "$USER" | grep -qw docker; then
       logger info "将用户 $USER 加入 docker 组"
       sudo usermod -aG docker "$USER"
-      logger info "请重新登录或执行 'sudo newgrp docker' 以使组权限生效"
+      logger info "请重新登录或执行 'newgrp docker' 以使组权限生效"
       return 0
     else
       logger info "用户 $USER 已在 docker 组中"
